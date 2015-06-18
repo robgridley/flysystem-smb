@@ -1,0 +1,23 @@
+{
+    "name": "robgridley/flysystem-smb",
+    "description": "Flysystem adapter for Icewind SMB.",
+    "require": {
+        "php": ">=5.4.0",
+        "icewind/smb": "~1.0",
+        "league/flysystem": "~1.0"
+    },
+    "require-dev": {
+        "phpspec/phpspec": "~2.2"
+    },
+    "authors": [
+        {
+            "name": "Rob Gridley",
+            "email": "me@robgridley.com"
+        }
+    ],
+    "autoload": {
+        "psr-4": {
+            "RobGridley\\Flysystem\\Smb\\": "src/"
+        }
+    }
+}
