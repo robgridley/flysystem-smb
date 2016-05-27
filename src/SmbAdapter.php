@@ -239,7 +239,7 @@ class SmbAdapter extends AbstractAdapter
         } catch (InvalidTypeException $e) {
             return array();
         } catch (NotFoundException $e) {
-            return false;
+            return array();
         }
 
         $contents = array();
