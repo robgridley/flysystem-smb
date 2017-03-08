@@ -235,7 +235,12 @@ class SmbAdapter extends AbstractAdapter
     {
         $location = $this->applyPathPrefix($path);
 
-        $stream = $this->share->read($location);
+        try {
+            $stream = $this->share->read($location);
+        } catch (NotFoundException $e) {
+            return false;
+        }
+
         $contents = stream_get_contents($stream);
 
         if ($contents === false) {
@@ -251,13 +256,17 @@ class SmbAdapter extends AbstractAdapter
      * Read a file as a stream.
      *
      * @param string $path
-     * @return array
+     * @return array|false
      */
     public function readStream($path)
     {
         $location = $this->applyPathPrefix($path);
 
-        $stream = $this->share->read($location);
+        try {
+            $stream = $this->share->read($location);
+        } catch (NotFoundException $e) {
+            return false;
+        }
 
         return compact('path', 'stream');
     }

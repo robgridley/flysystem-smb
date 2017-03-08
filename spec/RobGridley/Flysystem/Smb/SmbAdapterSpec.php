@@ -83,11 +83,23 @@ class SmbAdapterSpec extends ObjectBehavior
         $this->read('foo')->shouldReturn(['path' => 'foo', 'contents' => 'string']);
     }
 
+    public function it_should_return_false_when_trying_to_read_a_non_existing_file(IShare $share)
+    {
+        $share->read('prefix/foo')->shouldBeCalled()->willThrow(NotFoundException::class);
+        $this->read('foo')->shouldReturn(false);
+    }
+
     public function it_should_read_streams(IShare $share)
     {
         $temp = tmpfile();
         $share->read('prefix/foo')->shouldBeCalled()->willReturn($temp);
         $this->readStream('foo')->shouldReturn(['path' => 'foo', 'stream' => $temp]);
+    }
+
+    public function it_should_return_false_when_trying_to_stream_a_non_existing_file(IShare $share)
+    {
+        $share->read('prefix/foo')->shouldBeCalled()->willThrow(NotFoundException::class);
+        $this->readStream('foo')->shouldReturn(false);
     }
 
     public function it_should_retrieve_metadata_for_files(IShare $share, IFileInfo $file)
