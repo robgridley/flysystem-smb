@@ -1,4 +1,0 @@
-suites:
-    smb_suite:
-        namespace: RobGridley\Flysystem\Smb
-        psr4_prefix: RobGridley\Flysystem\Smb
