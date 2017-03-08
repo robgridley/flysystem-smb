@@ -1,9 +1,5 @@
 # Flysystem Adapter for Icewind SMB
 
-## To-do:
-
-* Write tests.
-
 ## Usage
 ```php
 use Icewind\SMB\Server;
@@ -17,6 +13,6 @@ $filesystem = new Filesystem(new SmbAdapter($share));
 ```
 ## Installation
 ```
-$ composer require 'robgridley/flysystem-smb:dev-master'
+$ composer require robgridley/flysystem-smb
 $ composer update
 ```
