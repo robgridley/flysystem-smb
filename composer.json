@@ -1,6 +1,8 @@
 {
     "name": "robgridley/flysystem-smb",
     "description": "Flysystem adapter for Icewind SMB.",
+    "keywords": ["smb", "samba", "flysystem"],
+    "license": "MIT",
     "require": {
         "php": ">=5.6.0",
         "icewind/smb": "^2.0",
