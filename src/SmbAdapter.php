@@ -47,7 +47,7 @@ class SmbAdapter extends AbstractAdapter
      */
     public function write($path, $contents, Config $config)
     {
-        $this->createDir(Util::dirname($path), $config);
+        $this->recursiveCreateDir(Util::dirname($path));
 
         $location = $this->applyPathPrefix($path);
         $stream = $this->share->write($location);
@@ -71,7 +71,7 @@ class SmbAdapter extends AbstractAdapter
      */
     public function writeStream($path, $resource, Config $config)
     {
-        $this->createDir(Util::dirname($path), $config);
+        $this->recursiveCreateDir(Util::dirname($path));
 
         $location = $this->applyPathPrefix($path);
         $stream = $this->share->write($location);
@@ -120,6 +120,8 @@ class SmbAdapter extends AbstractAdapter
      */
     public function rename($path, $newPath)
     {
+        $this->recursiveCreateDir(Util::dirname($newPath));
+
         $location = $this->applyPathPrefix($path);
         $destination = $this->applyPathPrefix($newPath);
 
@@ -187,23 +189,31 @@ class SmbAdapter extends AbstractAdapter
      */
     public function createDir($path, Config $config)
     {
-        $result = compact('path');
+        $this->recursiveCreateDir($path);
 
+        return compact('path');
+    }
+
+    /**
+     * Recursively create directories.
+     *
+     * @param $path
+     */
+    protected function recursiveCreateDir($path)
+    {
         if ($this->isDirectory($path)) {
-            return $result;
+            return;
         }
 
         $directories = explode($this->pathSeparator, $path);
         if (count($directories) > 1) {
             $parentDirectories = array_splice($directories, 0, count($directories) - 1);
-            $this->createDir(implode($this->pathSeparator, $parentDirectories), $config);
+            $this->recursiveCreateDir(implode($this->pathSeparator, $parentDirectories));
         }
 
         $location = $this->applyPathPrefix($path);
 
         $this->share->mkdir($location);
-
-        return $result;
     }
 
     /**
@@ -425,11 +435,11 @@ class SmbAdapter extends AbstractAdapter
      */
     protected function isDirectory($path)
     {
-        if (empty($path)) {
+        $location = $this->applyPathPrefix($path);
+
+        if (empty($location)) {
             return true;
         }
-
-        $location = $this->applyPathPrefix($path);
 
         try {
             $file = $this->share->stat($location);

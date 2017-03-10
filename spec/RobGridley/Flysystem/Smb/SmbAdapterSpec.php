@@ -26,20 +26,26 @@ class SmbAdapterSpec extends ObjectBehavior
         $this->shouldHaveType(AdapterInterface::class);
     }
 
-    public function it_should_rename_files(IShare $share)
+    public function it_should_rename_files(IShare $share, IFileInfo $file)
     {
+        $share->stat('prefix/')->shouldBeCalled()->willReturn($file);
+        $file->isDirectory()->shouldBeCalled()->willReturn(true);
         $share->rename('prefix/foo', 'prefix/bar')->shouldBeCalled()->willReturn(true);
         $this->rename('foo', 'bar')->shouldReturn(true);
     }
 
-    public function it_should_return_false_during_rename_when_source_does_not_exist(IShare $share)
+    public function it_should_return_false_during_rename_when_source_does_not_exist(IShare $share, IFileInfo $file)
     {
+        $share->stat('prefix/')->shouldBeCalled()->willReturn($file);
+        $file->isDirectory()->shouldBeCalled()->willReturn(true);
         $share->rename('prefix/foo', 'prefix/bar')->shouldBeCalled()->willThrow(NotFoundException::class);
         $this->rename('foo', 'bar')->shouldReturn(false);
     }
 
-    public function it_should_return_false_during_rename_when_destination_already_exists(IShare $share)
+    public function it_should_return_false_during_rename_when_destination_already_exists(IShare $share, IFileInfo $file)
     {
+        $share->stat('prefix/')->shouldBeCalled()->willReturn($file);
+        $file->isDirectory()->shouldBeCalled()->willReturn(true);
         $share->rename('prefix/foo', 'prefix/bar')->shouldBeCalled()->willThrow(AlreadyExistsException::class);
         $this->rename('foo', 'bar')->shouldReturn(false);
     }
