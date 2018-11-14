@@ -2,17 +2,14 @@
 
 ## Usage
 ```php
-use Icewind\SMB\Server;
-use Icewind\SMB\NativeServer;
+use Icewind\SMB\BasicAuth;
+use Icewind\SMB\ServerFactory;
 use League\Flysystem\Filesystem;
 use RobGridley\Flysystem\Smb\SmbAdapter;
 
-if (Server::nativeAvailable()) {
-    $server = new NativeServer('host', 'username', 'password');
-} else {
-    $server = new Server('host', 'username', 'password');
-}
-
+$factory = new ServerFactory;
+$auth = new BasicAuth('username', 'domain/workgroup', 'password');
+$server = $factory->createServer('host', $auth);
 $share = $server->getShare('name');
 
 $filesystem = new Filesystem(new SmbAdapter($share));
