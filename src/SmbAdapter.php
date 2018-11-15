@@ -383,7 +383,7 @@ class SmbAdapter extends AbstractAdapter
     {
         $normalized = [
             'type' => $file->isDirectory() ? 'dir' : 'file',
-            'path' => $this->getFilePath($file),
+            'path' => ltrim($this->getFilePath($file), $this->pathSeparator),
             'timestamp' => $file->getMTime()
         ];
 
