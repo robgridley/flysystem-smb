@@ -36,23 +36,15 @@ class SmbAdapter implements FilesystemAdapter
     private PathPrefixer $prefixer;
 
     /**
-     * The mime type detector instance.
-     *
-     * @var MimeTypeDetector
-     */
-    private MimeTypeDetector $mimeTypeDetector;
-
-    /**
      * Create an SMB adapter instance.
      *
      * @param IShare $share
      * @param string $root
-     * @param MimeTypeDetector|null $mimeTypeDetector
+     * @param MimeTypeDetector $mimeTypeDetector
      */
-    function __construct(private IShare $share, string $root = '', MimeTypeDetector $mimeTypeDetector = null)
+    function __construct(private IShare $share, string $root = '', private MimeTypeDetector $mimeTypeDetector = new FinfoMimeTypeDetector())
     {
         $this->prefixer = new PathPrefixer($root);
-        $this->mimeTypeDetector = $mimeTypeDetector ?: new FinfoMimeTypeDetector();
     }
 
     /**
