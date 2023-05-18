@@ -28,12 +28,14 @@ final class SmbAdapterTest extends FilesystemAdapterTestCase
      */
     public function setting_visibility(): void
     {
-        $adapter = $this->adapter();
-        $this->givenWeHaveAnExistingFile('some/file.txt');
+        $this->runScenario(function () {
+            $adapter = $this->adapter();
+            $this->givenWeHaveAnExistingFile('path.txt', 'contents', [Config::OPTION_VISIBILITY => Visibility::PUBLIC]);
 
-        $this->expectException(UnableToSetVisibility::class);
+            $this->expectException(UnableToSetVisibility::class);
 
-        $adapter->setVisibility('some/file.txt', Visibility::PRIVATE);
+            $adapter->setVisibility('path.txt', Visibility::PRIVATE);
+        });
     }
 
     /**
@@ -42,10 +44,10 @@ final class SmbAdapterTest extends FilesystemAdapterTestCase
     public function overwriting_a_file(): void
     {
         $this->runScenario(function () {
-            $this->givenWeHaveAnExistingFile('path.txt', 'contents');
+            $this->givenWeHaveAnExistingFile('path.txt', 'contents', ['visibility' => Visibility::PUBLIC]);
             $adapter = $this->adapter();
 
-            $adapter->write('path.txt', 'new contents', new Config());
+            $adapter->write('path.txt', 'new contents', new Config(['visibility' => Visibility::PRIVATE]));
 
             $contents = $adapter->read('path.txt');
             $this->assertEquals('new contents', $contents);
@@ -62,7 +64,7 @@ final class SmbAdapterTest extends FilesystemAdapterTestCase
             $adapter->write(
                 'source.txt',
                 'contents to be copied',
-                new Config()
+                new Config([Config::OPTION_VISIBILITY => Visibility::PUBLIC])
             );
 
             $adapter->copy('source.txt', 'destination.txt', new Config());
@@ -83,7 +85,7 @@ final class SmbAdapterTest extends FilesystemAdapterTestCase
             $adapter->write(
                 'source.txt',
                 'contents to be copied',
-                new Config()
+                new Config([Config::OPTION_VISIBILITY => Visibility::PUBLIC])
             );
 
             $adapter->copy('source.txt', 'destination.txt', new Config());
@@ -104,7 +106,7 @@ final class SmbAdapterTest extends FilesystemAdapterTestCase
             $adapter->write(
                 'source.txt',
                 'contents to be copied',
-                new Config()
+                new Config([Config::OPTION_VISIBILITY => Visibility::PUBLIC])
             );
             $adapter->move('source.txt', 'destination.txt', new Config());
             $this->assertFalse(
