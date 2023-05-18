@@ -2,4 +2,4 @@
 /.idea
 /vendor
 /composer.lock
-/test.php
+/test_config.php

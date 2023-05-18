@@ -2,182 +2,222 @@
 
 namespace RobGridley\Flysystem\Smb;
 
-use Icewind\SMB\IShare;
-use Icewind\SMB\IFileInfo;
 use Icewind\SMB\Exception\NotFoundException;
-use Icewind\SMB\Exception\InvalidTypeException;
-use Icewind\SMB\Exception\AlreadyExistsException;
-use League\Flysystem\Util;
+use Icewind\SMB\IFileInfo;
+use Icewind\SMB\IShare;
 use League\Flysystem\Config;
-use League\Flysystem\Adapter\AbstractAdapter;
-use League\Flysystem\Adapter\Polyfill\StreamedCopyTrait;
-use League\Flysystem\Adapter\Polyfill\NotSupportingVisibilityTrait;
+use League\Flysystem\DirectoryAttributes;
+use League\Flysystem\FileAttributes;
+use League\Flysystem\FilesystemAdapter;
+use League\Flysystem\PathPrefixer;
+use League\Flysystem\StorageAttributes;
+use League\Flysystem\UnableToCheckExistence;
+use League\Flysystem\UnableToCopyFile;
+use League\Flysystem\UnableToCreateDirectory;
+use League\Flysystem\UnableToDeleteDirectory;
+use League\Flysystem\UnableToDeleteFile;
+use League\Flysystem\UnableToListContents;
+use League\Flysystem\UnableToMoveFile;
+use League\Flysystem\UnableToReadFile;
+use League\Flysystem\UnableToRetrieveMetadata;
+use League\Flysystem\UnableToSetVisibility;
+use League\Flysystem\UnableToWriteFile;
+use League\MimeTypeDetection\FinfoMimeTypeDetector;
+use League\MimeTypeDetection\MimeTypeDetector;
+use Throwable;
 
-class SmbAdapter extends AbstractAdapter
+class SmbAdapter implements FilesystemAdapter
 {
-    use StreamedCopyTrait, NotSupportingVisibilityTrait;
-
     /**
-     * The Icewind SMB Share instance.
+     * The path prefixer.
      *
-     * @var IShare
+     * @var PathPrefixer
      */
-    protected $share;
+    private PathPrefixer $prefixer;
 
     /**
-     * Create a new instance.
+     * The mime type detector instance.
+     *
+     * @var MimeTypeDetector
+     */
+    private MimeTypeDetector $mimeTypeDetector;
+
+    /**
+     * Create an SMB adapter instance.
      *
      * @param IShare $share
-     * @param string $prefix
+     * @param string $root
+     * @param MimeTypeDetector|null $mimeTypeDetector
      */
-    function __construct(IShare $share, $prefix = null)
+    function __construct(private IShare $share, string $root = '', MimeTypeDetector $mimeTypeDetector = null)
     {
-        $this->share = $share;
-
-        $this->setPathPrefix($prefix);
+        $this->prefixer = new PathPrefixer($root);
+        $this->mimeTypeDetector = $mimeTypeDetector ?: new FinfoMimeTypeDetector();
     }
 
     /**
-     * Write a new file.
+     * Determine if the specified file exists.
      *
      * @param string $path
-     * @param string $contents
-     * @param Config $config
-     * @return array|false
-     */
-    public function write($path, $contents, Config $config)
-    {
-        $this->recursiveCreateDir(Util::dirname($path));
-
-        $location = $this->applyPathPrefix($path);
-        $stream = $this->share->write($location);
-
-        fwrite($stream, $contents);
-
-        if (!fclose($stream)) {
-            return false;
-        }
-
-        return compact('path', 'contents');
-    }
-
-    /**
-     * Write a new file using a stream.
-     *
-     * @param string $path
-     * @param resource $resource
-     * @param Config $config
-     * @return array|false
-     */
-    public function writeStream($path, $resource, Config $config)
-    {
-        $this->recursiveCreateDir(Util::dirname($path));
-
-        $location = $this->applyPathPrefix($path);
-        $stream = $this->share->write($location);
-
-        stream_copy_to_stream($resource, $stream);
-
-        if (!fclose($stream)) {
-            return false;
-        }
-
-        return compact('path');
-    }
-
-    /**
-     * Update an existing file.
-     *
-     * @param string $path
-     * @param string $contents
-     * @param Config $config
-     * @return array|false
-     */
-    public function update($path, $contents, Config $config)
-    {
-        return $this->write($path, $contents, $config);
-    }
-
-    /**
-     * Update an existing file using a stream.
-     *
-     * @param string $path
-     * @param resource $resource
-     * @param Config $config
-     * @return array|false
-     */
-    public function updateStream($path, $resource, Config $config)
-    {
-        return $this->writeStream($path, $resource, $config);
-    }
-
-    /**
-     * Rename a file or directory.
-     *
-     * @param string $path
-     * @param string $newPath
      * @return bool
      */
-    public function rename($path, $newPath)
+    public function fileExists(string $path): bool
     {
-        $this->recursiveCreateDir(Util::dirname($newPath));
-
-        $location = $this->applyPathPrefix($path);
-        $destination = $this->applyPathPrefix($newPath);
-
         try {
-            $this->share->rename($location, $destination);
-        } catch (NotFoundException $e) {
+            $fileInfo = $this->share->stat($this->prefixer->prefixPath($path));
+        } catch (NotFoundException $exception) {
             return false;
-        } catch (AlreadyExistsException $e) {
-            return false;
+        } catch (Throwable $exception) {
+            throw UnableToCheckExistence::forLocation($path, $exception);
         }
 
-        return true;
+        return !$fileInfo->isDirectory();
+    }
+
+    /**
+     * Determine if the specified directory exists.
+     *
+     * @param string $path
+     * @return bool
+     */
+    public function directoryExists(string $path): bool
+    {
+        try {
+            $fileInfo = $this->share->stat($this->prefixer->prefixPath($path));
+        } catch (NotFoundException $exception) {
+            return false;
+        } catch (Throwable $exception) {
+            throw UnableToCheckExistence::forLocation($path, $exception);
+        }
+
+        return $fileInfo->isDirectory();
+    }
+
+    /**
+     * Write a string.
+     *
+     * @param string $path
+     * @param string $contents
+     * @param Config $config
+     * @return void
+     */
+    public function write(string $path, string $contents, Config $config): void
+    {
+        try {
+            $this->ensureParentDirectoryExists($path, $config);
+            $stream = $this->share->write($this->prefixer->prefixPath($path));
+        } catch (Throwable $exception) {
+            throw UnableToWriteFile::atLocation($path, $exception->getMessage(), $exception);
+        }
+
+        if (false === @fwrite($stream, $contents)) {
+            throw UnableToWriteFile::atLocation($path, 'Unable to write to SMB stream.');
+        }
+
+        if (!fclose($stream)) {
+            throw UnableToWriteFile::atLocation($path, 'Unable to close SMB stream.');
+        }
+    }
+
+    /**
+     * Write a stream.
+     *
+     * @param string $path
+     * @param $contents
+     * @param Config $config
+     * @return void
+     */
+    public function writeStream(string $path, $contents, Config $config): void
+    {
+        try {
+            $this->ensureParentDirectoryExists($path, $config);
+            $stream = $this->share->write($this->prefixer->prefixPath($path));
+        } catch (Throwable $exception) {
+            throw UnableToWriteFile::atLocation($path, $exception->getMessage(), $exception);
+        }
+
+        if (false === stream_copy_to_stream($contents, $stream)) {
+            throw UnableToWriteFile::atLocation($path, 'Unable to write to SMB stream.');
+        }
+
+        if (!fclose($stream)) {
+            throw UnableToWriteFile::atLocation($path, 'Unable to close SMB stream.');
+        }
+    }
+
+    /**
+     * Read a file.
+     *
+     * @param string $path
+     * @return string
+     */
+    public function read(string $path): string
+    {
+        $contents = stream_get_contents($this->readStream($path));
+
+        if ($contents === false) {
+            throw UnableToReadFile::fromLocation($path, 'Unable to read stream.');
+        }
+
+        return $contents;
+    }
+
+    /**
+     * Open a stream for a file.
+     *
+     * @param string $path
+     * @return resource
+     */
+    public function readStream(string $path)
+    {
+        try {
+            return $this->share->read($this->prefixer->prefixPath($path));
+        } catch (Throwable $exception) {
+            throw UnableToReadFile::fromLocation($path, $exception->getMessage(), $exception);
+        }
     }
 
     /**
      * Delete a file.
      *
      * @param string $path
-     * @return bool
+     * @return void
      */
-    public function delete($path)
+    public function delete(string $path): void
     {
-        $location = $this->applyPathPrefix($path);
-
         try {
-            $this->share->del($location);
-        } catch (NotFoundException $e) {
-            return false;
-        } catch (InvalidTypeException $e) {
-            return false;
+            $this->share->del($this->prefixer->prefixPath($path));
+        } catch (NotFoundException $exception) {
+            // Do nothing.
+        } catch (Throwable $exception) {
+            throw UnableToDeleteFile::atLocation($path, $exception->getMessage(), $exception);
         }
-
-        return true;
     }
 
     /**
-     * Delete a directory.
+     * Recursively delete a directory.
      *
      * @param string $path
-     * @return bool
+     * @return void
      */
-    public function deleteDir($path)
+    public function deleteDirectory(string $path): void
     {
-        $this->deleteContents($path);
-
-        $location = $this->applyPathPrefix($path);
+        $directories = [$path];
 
         try {
-            $this->share->rmdir($location);
-        } catch (NotFoundException $e) {
-            return false;
-        } catch (InvalidTypeException $e) {
-            return false;
+            foreach ($this->listContents($path, true) as $item) {
+                if ($item->isDir()) {
+                    $directories[] = $item->path();
+                    continue;
+                }
+                $this->delete($item->path());
+            }
+            foreach (array_reverse($directories) as $directory) {
+                $this->share->rmdir($this->prefixer->prefixPath($directory));
+            }
+        } catch (Throwable $exception) {
+            throw UnableToDeleteDirectory::atLocation($path, $exception->getMessage(), $exception);
         }
-
-        return true;
     }
 
     /**
@@ -185,269 +225,219 @@ class SmbAdapter extends AbstractAdapter
      *
      * @param string $path
      * @param Config $config
-     * @return array|false
+     * @return void
      */
-    public function createDir($path, Config $config)
+    public function createDirectory(string $path, Config $config): void
     {
-        $this->recursiveCreateDir($path);
-
-        return compact('path');
-    }
-
-    /**
-     * Recursively create directories.
-     *
-     * @param $path
-     */
-    protected function recursiveCreateDir($path)
-    {
-        if ($this->isDirectory($path)) {
+        if ($this->directoryExists($path)) {
             return;
         }
 
-        $directories = explode($this->pathSeparator, $path);
-        if (count($directories) > 1) {
-            $parentDirectories = array_splice($directories, 0, count($directories) - 1);
-            $this->recursiveCreateDir(implode($this->pathSeparator, $parentDirectories));
+        $parentDirectory = dirname($path);
+
+        if ($parentDirectory !== '' && $parentDirectory !== '.') {
+            $this->createDirectory($parentDirectory, $config);
         }
 
-        $location = $this->applyPathPrefix($path);
-
-        $this->share->mkdir($location);
+        try {
+            $this->share->mkdir($this->prefixer->prefixPath($path));
+        } catch (Throwable $exception) {
+            throw UnableToCreateDirectory::atLocation($path, $exception->getMessage(), $exception);
+        }
     }
 
     /**
-     * Determine if a file or directory exists.
+     * Set file visibility.
      *
      * @param string $path
-     * @return bool
+     * @param string $visibility
+     * @return void
      */
-    public function has($path)
+    public function setVisibility(string $path, string $visibility): void
     {
-        $location = $this->applyPathPrefix($path);
-
-        try {
-            $this->share->stat($location);
-        } catch (NotFoundException $e) {
-            return false;
-        }
-
-        return true;
+        throw UnableToSetVisibility::atLocation($path, 'SMB does not support this operation.');
     }
 
     /**
-     * Read a file.
+     * Get file visibility.
      *
      * @param string $path
-     * @return array|false
+     * @return FileAttributes
      */
-    public function read($path)
+    public function visibility(string $path): FileAttributes
     {
-        $location = $this->applyPathPrefix($path);
-
-        try {
-            $stream = $this->share->read($location);
-        } catch (NotFoundException $e) {
-            return false;
-        }
-
-        $contents = stream_get_contents($stream);
-
-        if ($contents === false) {
-            return false;
-        }
-
-        fclose($stream);
-
-        return compact('path', 'contents');
+        throw UnableToRetrieveMetadata::visibility($path, 'SMB does not support this operation.');
     }
 
     /**
-     * Read a file as a stream.
+     * Determine the MIME-type of a file.
      *
      * @param string $path
-     * @return array|false
+     * @return FileAttributes
      */
-    public function readStream($path)
+    public function mimeType(string $path): FileAttributes
     {
-        $location = $this->applyPathPrefix($path);
-
         try {
-            $stream = $this->share->read($location);
-        } catch (NotFoundException $e) {
-            return false;
+            $contents = stream_get_contents($this->readStream($path), 65535);
+        } catch (Throwable $exception) {
+            throw UnableToRetrieveMetadata::mimeType($path, 'Unable to read file.');
         }
 
-        return compact('path', 'stream');
+        $mimeType = $this->mimeTypeDetector->detectMimeType($path, $contents);
+
+        if (is_null($mimeType)) {
+            throw UnableToRetrieveMetadata::mimeType($path, 'Unable to detect MIME type.');
+        }
+
+        return new FileAttributes($path, null, null, null, $mimeType);
     }
 
     /**
-     * List the contents of a directory.
+     * Get the modification date of a file.
      *
      * @param string $path
-     * @param bool $recursive
-     * @return array|false
+     * @return FileAttributes
      */
-    public function listContents($path = '', $recursive = false)
+    public function lastModified(string $path): FileAttributes
     {
-        $location = $this->applyPathPrefix($path);
-
         try {
-            $files = $this->share->dir($location);
-        } catch (InvalidTypeException $e) {
-            return [];
-        } catch (NotFoundException $e) {
-            return [];
+            $fileInfo = $this->share->stat($this->prefixer->prefixPath($path));
+        } catch (Throwable $exception) {
+            throw UnableToRetrieveMetadata::lastModified($path, $exception->getMessage(), $exception);
         }
 
-        $result = [];
-
-        foreach ($files as $file) {
-            $result[] = $this->normalizeFileInfo($file);
-
-            if ($file->isDirectory() && $recursive) {
-                $result = array_merge($result, $this->listContents($this->getFilePath($file), true));
-            }
-        }
-
-        return $result;
-    }
-
-    /**
-     * Get all of the metadata for a file or directory.
-     *
-     * @param string $path
-     * @return array|false
-     */
-    public function getMetadata($path)
-    {
-        $location = $this->applyPathPrefix($path);
-
-        try {
-            $file = $this->share->stat($location);
-        } catch (NotFoundException $e) {
-            return false;
-        }
-
-        return $this->normalizeFileInfo($file);
+        return new FileAttributes($path, null, null, $fileInfo->getMTime());
     }
 
     /**
      * Get the size of a file.
      *
      * @param string $path
-     * @return array|false
+     * @return FileAttributes
      */
-    public function getSize($path)
+    public function fileSize(string $path): FileAttributes
     {
-        return $this->getMetadata($path);
-    }
-
-    /**
-     * Get the MIME type of a file.
-     *
-     * @param string $path
-     * @return array|false
-     */
-    public function getMimetype($path)
-    {
-        $metadata = $this->readStream($path);
-
-        if ($metadata === false) {
-            return false;
+        try {
+            $fileInfo = $this->share->stat($this->prefixer->prefixPath($path));
+        } catch (Throwable $exception) {
+            throw UnableToRetrieveMetadata::fileSize($path, $exception->getMessage(), $exception);
         }
 
-        $metadata['mimetype'] = Util::guessMimeType($path, stream_get_contents($metadata['stream'], 65536));
-        rewind($metadata['stream']);
-
-        return $metadata;
-    }
-
-    /**
-     * Get the timestamp of a file or directory.
-     *
-     * @param string $path
-     * @return array|false
-     */
-    public function getTimestamp($path)
-    {
-        return $this->getMetadata($path);
-    }
-
-    /**
-     * Normalize the file info.
-     *
-     * @param IFileInfo $file
-     * @return array
-     */
-    protected function normalizeFileInfo(IFileInfo $file)
-    {
-        $normalized = [
-            'type' => $file->isDirectory() ? 'dir' : 'file',
-            'path' => ltrim($this->getFilePath($file), $this->pathSeparator),
-            'timestamp' => $file->getMTime()
-        ];
-
-        if (!$file->isDirectory()) {
-            $normalized['size'] = $file->getSize();
+        if ($fileInfo->isDirectory()) {
+            throw UnableToRetrieveMetadata::fileSize($path, 'Path is a directory.');
         }
 
-        return $normalized;
+        return new FileAttributes($path, $fileInfo->getSize());
     }
 
     /**
-     * Get the normalized path from an IFileInfo object.
-     *
-     * @param IFileInfo $file
-     * @return string
-     */
-    protected function getFilePath(IFileInfo $file)
-    {
-        $location = $file->getPath();
-
-        return $this->removePathPrefix($location);
-    }
-
-    /**
-     * Delete the contents of a directory.
+     * List the contents of a directory.
      *
      * @param string $path
+     * @param bool $deep
+     * @return iterable
      */
-    protected function deleteContents($path)
+    public function listContents(string $path, bool $deep): iterable
     {
-        $contents = $this->listContents($path, true);
+        try {
+            $listing = $this->share->dir($this->prefixer->prefixPath($path));
+        } catch (Throwable $exception) {
+            throw UnableToListContents::atLocation($path, $deep, $exception);
+        }
 
-        foreach (array_reverse($contents) as $object) {
-            $location = $this->applyPathPrefix($object['path']);
+        foreach ($listing as $fileInfo) {
+            $attributes = $this->fileInfoToAttributes($fileInfo);
+            yield $attributes;
 
-            if ($object['type'] === 'dir') {
-                $this->share->rmdir($location);
-            } else {
-                $this->share->del($location);
+            if ($deep && $attributes->isDir()) {
+                foreach ($this->listContents($attributes->path(), true) as $child) {
+                    yield $child;
+                }
             }
         }
     }
 
     /**
-     * Determine if the specified path is a directory.
+     * Move a file.
      *
-     * @param string $path
-     * @return bool
+     * @param string $source
+     * @param string $destination
+     * @param Config $config
+     * @return void
      */
-    protected function isDirectory($path)
+    public function move(string $source, string $destination, Config $config): void
     {
-        $location = $this->applyPathPrefix($path);
-
-        if (empty($location)) {
-            return true;
-        }
+        $sourceLocation = $this->prefixer->prefixPath($source);
+        $destinationLocation = $this->prefixer->prefixPath($destination);
 
         try {
-            $file = $this->share->stat($location);
-        } catch (NotFoundException $e) {
-            return false;
+            $this->ensureParentDirectoryExists($destinationLocation, $config);
+            $this->share->rename($sourceLocation, $destinationLocation);
+        } catch (Throwable $exception) {
+            throw UnableToMoveFile::fromLocationTo($source, $destination, $exception);
+        }
+    }
+
+    /**
+     * Copy a file.
+     *
+     * @param string $source
+     * @param string $destination
+     * @param Config $config
+     * @return void
+     */
+    public function copy(string $source, string $destination, Config $config): void
+    {
+        try {
+            $sourceStream = $this->readStream($source);
+            $this->writeStream($destination, $sourceStream, $config);
+        } catch (Throwable $exception) {
+            throw UnableToCopyFile::fromLocationTo($source, $destination, $exception);
         }
 
-        return $file->isDirectory();
+        fclose($sourceStream);
+    }
+
+    /**
+     * Create the parent directories if they do not exist.
+     *
+     * @param string $path
+     * @param Config $config
+     * @return void
+     * @throws UnableToCreateDirectory
+     */
+    private function ensureParentDirectoryExists(string $path, Config $config): void
+    {
+        $parentDirectory = dirname($path);
+
+        if ($parentDirectory === '' || $parentDirectory === '.') {
+            return;
+        }
+
+        $this->createDirectory($parentDirectory, $config);
+    }
+
+    /**
+     * Convert an SMB file info instance to a file or directory attributes instance.
+     *
+     * @param IFileInfo $fileInfo
+     * @return StorageAttributes
+     */
+    private function fileInfoToAttributes(IFileInfo $fileInfo): StorageAttributes
+    {
+        if ($fileInfo->isDirectory()) {
+            return new DirectoryAttributes(
+                $this->prefixer->stripPrefix($fileInfo->getPath()),
+                null,
+                $fileInfo->getMTime(),
+            );
+        }
+
+        return new FileAttributes(
+            $this->prefixer->stripPrefix($fileInfo->getPath()),
+            $fileInfo->getSize(),
+            null,
+            $fileInfo->getMTime(),
+        );
     }
 }

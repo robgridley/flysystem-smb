@@ -4,12 +4,13 @@
     "keywords": ["smb", "samba", "flysystem"],
     "license": "MIT",
     "require": {
-        "php": ">=5.6.0",
-        "icewind/smb": "^3.0|^2.0",
-        "league/flysystem": "~1.0"
+        "php": "^8.1",
+        "icewind/smb": "^3.0",
+        "league/flysystem": "^3.0"
     },
     "require-dev": {
-        "phpspec/phpspec": "^3.2"
+        "league/flysystem-adapter-test-utilities": "^3.15",
+        "phpunit/phpunit": "^9.6"
     },
     "authors": [
         {
